@@ -62,10 +62,10 @@ const toReadableStream = (source) => {
   })
 }
 
-async function saveFile(imageURI,imageName) {
+async function saveFile(imageURI, imageName) {
   const ipfsClient = require('ipfs-http-client')
   const ipfs = ipfsClient("https://ipfs.io")
-  var writableStream = fs.createWriteStream(imageName);
+  var writableStream = fs.createWriteStream("./images/"+imageName);
   const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } })
   for await (const chunk of stream) {
     writableStream.write(chunk);
@@ -74,15 +74,9 @@ async function saveFile(imageURI,imageName) {
 }
 
 
-// Put it all together in a call and return the result to the console
-// FUNCTION can be "getEbola", "getInfo", "tipCreator" and "kill"
-contract.methods.tokenURI("535171").call().then(function (output) {
 
-  console.log(output);
-  sendRequest(output);
-});
 
-function sendRequest (url){
+function saveTokenImages(tokenId,url) {
   https.get(url, (resp) => {
     let data = '';
 
@@ -96,15 +90,56 @@ function sendRequest (url){
       let imageURI = JSON.parse(data).image;
       console.log(imageURI);
       var pos = imageURI.indexOf("ipfs");
-      if(pos >= 0){
-        imageURI = imageURI.slice(imageURI.lastIndexOf("ipfs")+5);
+      if (pos >= 0) {
+        imageURI = imageURI.slice(imageURI.lastIndexOf("ipfs") + 5);
         console.log(imageURI);
-        const imageName = imageURI.slice(imageURI.indexOf("/")+1);
-        saveFile(imageURI,imageName);
+        const imageName = imageURI.slice(imageURI.indexOf("/") + 1);
+        saveFile(imageURI, tokenId+imageName);
       }
     });
 
   }).on("error", (err) => {
-    console.log("Error: " + err.message);
+    console.log("Error: " +tokenId + ":"+ err.message);
   });
 }
+
+// Search the contract events for the hash in the event logs and show matching events.
+contract.getPastEvents('Transfer', {
+  fromBlock: 12141000,
+  toBlock: 'latest'
+}, function (error, events) {
+  const numberOfEvent = events.length;
+  console.log(numberOfEvent);
+  events.forEach(singleEvent => {
+    console.log(singleEvent.returnValues.tokenId)
+    contract.methods.tokenURI(singleEvent.returnValues.tokenId).call(function (err,output) {
+      if(err){console.log(err)}
+      else{
+        console.log(output);
+        saveTokenImages(singleEvent.returnValues.tokenId,output);  
+      }
+    });
+  })
+})
+
+function handleEvent(transferEvent){
+    console.log(transferEvent.returnValues.tokenId)
+    contract.methods.tokenURI(transferEvent.returnValues.tokenId).call().then(function (output) {
+
+      console.log(output);
+      saveTokenImages(transferEvent.returnValues.tokenId,output);
+    });
+}
+// const secondTokenId = [614414]
+// // const tokenId = "678184"
+// secondTokenId.forEach(token =>{
+//   console.log(token);
+//   contract.methods.tokenURI(token).call(function (err,output) {
+//     if(err){
+//       console.log(err);
+//     }
+//     else
+//       console.log(output);
+//     // saveTokenImages(tokenId,output);
+//   });
+// })
