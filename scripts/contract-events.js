@@ -59,23 +59,3 @@ contract.events.allEvents({
 	.on('error', function (error, receipt) { // If the transaction was rejected by the network with a receipt, the second parameter will be the receipt.
     
 	});
-
-// event output example 
-// 679368
-679523
-679579
-679629
-679647
-679696
-679678
-679715
-679484
-679759
-679849
-660661
-679946
-614414
-679978
-679935
-275977
-679865
