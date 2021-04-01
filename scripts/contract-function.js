@@ -10,6 +10,9 @@ For an explanation of this code, navigate to the wiki https://github.com/ThatOth
 var Web3 = require('web3');
 const Stream = require('stream')
 const https = require('https');
+const pLimit = require('p-limit');
+const all = require("it-all")
+const axios = require('axios');
 // Show web3 where it needs to look for the Ethereum node
 const web3 = new Web3(new Web3.providers.HttpProvider('https://mainnet.infura.io/v3/a671a77998514426b1ca3733157fb5ab'));
 
@@ -26,120 +29,121 @@ var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 
 // Build a new variable based on the web3 API including the ABI and address of the contract
 var contract = new web3.eth.Contract(abi, addr);
+let possibleNumberEvents = 0;
+let savedImages = 0;
 
 
-/**
-* @template T
-* @param {(AsyncIterable<T> & { return?: () => {}}) | AsyncGenerator<T, any, any>} source
-* @returns {ReadableStream<T>}
-*/
-const toReadableStream = (source) => {
-  const iterator = source[Symbol.asyncIterator]()
-  return new NodeJS.ReadableStream({
-    /**
-     * @param {ReadableStreamDefaultController} controller 
-     */
-    async pull(controller) {
-      try {
-        const chunk = await iterator.next()
-        if (chunk.done) {
-          controller.close()
-        } else {
-          controller.enqueue(chunk.value)
-        }
-      } catch (error) {
-        controller.error(error)
-      }
-    },
-    /**
-     * @param {any} reason 
-     */
-    cancel(reason) {
-      if (source.return) {
-        source.return(reason)
-      }
-    }
-  })
+
+function saveOwnerToFile(ownersData) {
+  const jsonPath = ("../../imagematch/owners_data.json");
+  const fileObj = fs.readFileSync(jsonPath, { flag: "a+" });
+  let jsonObj = {};
+  if (fileObj.byteLength != 0) {
+    jsonObj = JSON.parse(fileObj);
+  }
+
+  let owners = []
+  const tokenId = ownersData.tokenId;
+  if (jsonObj.hasOwnProperty(tokenId)) {
+    owners = jsonObj[tokenId];
+  }
+  owners.push(ownersData);
+  jsonObj[tokenId] = owners;
+  fs.writeFileSync(jsonPath, JSON.stringify(jsonObj));
 }
 
-async function saveFile(imageURI, imageName) {
-  const ipfsClient = require('ipfs-http-client')
-  const ipfs = ipfsClient("https://ipfs.io")
-  var writableStream = fs.createWriteStream("./images/"+imageName);
-  const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } })
-  for await (const chunk of stream) {
-    writableStream.write(chunk);
+const getImageData = (imageURI) => {
+
+  var pos = imageURI.indexOf("ipfs");
+  if (pos >= 0) {
+    imageURI = imageURI.slice(imageURI.lastIndexOf("ipfs") + 5);
+    // console.log(imageURI);
+    const imageName = imageURI.slice(imageURI.indexOf("/") + 1);
+    if (imageName.search(".gif") > 0) {
+      return;
+    } else {
+      return [imageURI, imageName];
+    }
   }
 
 }
 
 
-
-
-function saveTokenImages(tokenId,url) {
-  https.get(url, (resp) => {
-    let data = '';
-
-    // A chunk of data has been received.
-    resp.on('data', (chunk) => {
-      data += chunk;
-    });
-
-    // The whole response has been received. Print out the result.
-    resp.on('end', () => {
-      let imageURI = JSON.parse(data).image;
-      console.log(imageURI);
-      var pos = imageURI.indexOf("ipfs");
-      if (pos >= 0) {
-        imageURI = imageURI.slice(imageURI.lastIndexOf("ipfs") + 5);
-        console.log(imageURI);
-        const imageName = imageURI.slice(imageURI.indexOf("/") + 1);
-        saveFile(imageURI, tokenId+imageName);
-      }
-    });
-
-  }).on("error", (err) => {
-    console.log("Error: " +tokenId + ":"+ err.message);
-  });
-}
-
+const ipfsClient = require('ipfs-http-client')
+const ipfs = ipfsClient("https://ipfs.infura.io:5001")
 // Search the contract events for the hash in the event logs and show matching events.
 contract.getPastEvents('Transfer', {
   fromBlock: 12141000,
   toBlock: 'latest'
-}, function (error, events) {
-  const numberOfEvent = events.length;
-  console.log(numberOfEvent);
-  events.forEach(singleEvent => {
-    console.log(singleEvent.returnValues.tokenId)
-    contract.methods.tokenURI(singleEvent.returnValues.tokenId).call(function (err,output) {
-      if(err){console.log(err)}
-      else{
-        console.log(output);
-        saveTokenImages(singleEvent.returnValues.tokenId,output);  
+}, async function (error, events) {
+  possibleNumberEvents = events.length;
+  console.log(possibleNumberEvents);
+  let timeoutCounter = 1;
+  for (let i = 0; i < possibleNumberEvents; i++) {
+    const singleEvent = events[i];
+    const tokenId = singleEvent.returnValues.tokenId;
+    console.log("starting: " + tokenId)
+
+    const timeout = Math.pow(2, timeoutCounter);
+    console.log('Waiting', timeout, 'ms');
+    await wait(timeout);
+    timeoutCounter++;
+    if (timeoutCounter > 10) {
+      timeoutCounter = 1;
+    }
+    try {
+      const tokenImageURI = await contract.methods.tokenURI(tokenId).call();
+
+      console.log(tokenImageURI);
+
+      let tokenMetaData = await axios.request(tokenImageURI);
+
+      console.log(tokenMetaData.data.image);
+
+      const imageData = getImageData(tokenMetaData.data.image)
+      if (imageData) {
+        const imageName = imageData[1];
+        const imageURI = imageData[0];
+
+        var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
+        console.log("Catting file: " + imageName)
+        try {
+          const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+          // console.log(stream);
+          for await (const chunk of stream) {
+            writableStream.write(chunk);
+          }
+          saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to });
+          savedImages++;
+          const logMsg = "Saved " + savedImages + " images out of " + possibleNumberEvents;
+          console.log(logMsg)
+        } catch (e) {
+          console.log(e);
+          const downloadFileTimeout = 10*1000
+          console.log('Waiting', downloadFileTimeout, 'ms');
+          await wait(downloadFileTimeout);
+        }
+
+
       }
-    });
-  })
+    } catch (err) {
+      console.log(err)
+      await wait(timeout);
+    }
+
+
+
+  }
+
+
 })
-
-function handleEvent(transferEvent){
-    console.log(transferEvent.returnValues.tokenId)
-    contract.methods.tokenURI(transferEvent.returnValues.tokenId).call().then(function (output) {
-
-      console.log(output);
-      saveTokenImages(transferEvent.returnValues.tokenId,output);
-    });
+function wait(timeout) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve()
+    }, timeout);
+  });
 }
-// const secondTokenId = [614414]
-// // const tokenId = "678184"
-// secondTokenId.forEach(token =>{
-//   console.log(token);
-//   contract.methods.tokenURI(token).call(function (err,output) {
-//     if(err){
-//       console.log(err);
-//     }
-//     else
-//       console.log(output);
-//     // saveTokenImages(tokenId,output);
-//   });
-// })
+
+
+
