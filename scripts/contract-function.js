@@ -43,13 +43,16 @@ function saveOwnerToFile(ownersData) {
   }
 
   let owners = []
+  let tokenExist = false;
   const tokenId = ownersData.tokenId;
   if (jsonObj.hasOwnProperty(tokenId)) {
     owners = jsonObj[tokenId];
+    tokenExist = true;
   }
   owners.push(ownersData);
   jsonObj[tokenId] = owners;
   fs.writeFileSync(jsonPath, JSON.stringify(jsonObj));
+  return tokenExist;
 }
 
 const getImageData = (imageURI) => {
@@ -73,7 +76,7 @@ const ipfsClient = require('ipfs-http-client')
 const ipfs = ipfsClient("https://ipfs.infura.io:5001")
 // Search the contract events for the hash in the event logs and show matching events.
 contract.getPastEvents('Transfer', {
-  fromBlock: 12141000,
+  fromBlock: 12154903,
   toBlock: 'latest'
 }, async function (error, events) {
   possibleNumberEvents = events.length;
@@ -82,7 +85,7 @@ contract.getPastEvents('Transfer', {
   for (let i = 0; i < possibleNumberEvents; i++) {
     const singleEvent = events[i];
     const tokenId = singleEvent.returnValues.tokenId;
-    console.log("starting: " + tokenId)
+    console.log("============= Starting with token: ", tokenId, ", Block number: ", singleEvent.blockNumber, "=============")
 
     const timeout = Math.pow(2, timeoutCounter);
     console.log('Waiting', timeout, 'ms');
@@ -105,24 +108,27 @@ contract.getPastEvents('Transfer', {
         const imageName = imageData[1];
         const imageURI = imageData[0];
 
-        var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
-        console.log("Catting file: " + imageName)
-        try {
-          const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
-          // console.log(stream);
-          for await (const chunk of stream) {
-            writableStream.write(chunk);
+        if (!saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })) {
+          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
+          console.log("Catting file: " + imageName)
+          try {
+            const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+            // console.log(stream);
+            for await (const chunk of stream) {
+              writableStream.write(chunk);
+            }
+
+            savedImages++;
+            const logMsg = "Saved " + savedImages + " images out of " + possibleNumberEvents;
+            console.log(logMsg)
+          } catch (e) {
+            console.log(e);
+            const downloadFileTimeout = 10 * 1000
+            console.log('Waiting', downloadFileTimeout, 'ms');
+            await wait(downloadFileTimeout);
           }
-          saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to });
-          savedImages++;
-          const logMsg = "Saved " + savedImages + " images out of " + possibleNumberEvents;
-          console.log(logMsg)
-        } catch (e) {
-          console.log(e);
-          const downloadFileTimeout = 10*1000
-          console.log('Waiting', downloadFileTimeout, 'ms');
-          await wait(downloadFileTimeout);
         }
+
 
 
       }
@@ -130,7 +136,7 @@ contract.getPastEvents('Transfer', {
       console.log(err)
       await wait(timeout);
     }
-
+    console.log("=======================End token: ", tokenId, "=============================")
 
 
   }
