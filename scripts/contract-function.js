@@ -1,10 +1,3 @@
-/*
-A script that gets runs a function call in a smart contract on Ethereum. This script will probably not work on payable or not constant solidity functions. Use at your own risk. 
-
-Currently this script is set up to call the "Ebola on Ethereum" smart contract. For more info on that see the repo here: https://github.com/ThatOtherZach/Ebola-on-Ethereum
-
-For an explanation of this code, navigate to the wiki https://github.com/ThatOtherZach/Web3-by-Example/wiki/contract-function
-*/
 
 // Require Web3 Module
 var Web3 = require('web3');
@@ -29,7 +22,6 @@ var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 
 // Build a new variable based on the web3 API including the ABI and address of the contract
 var contract = new web3.eth.Contract(abi, addr);
-let possibleNumberEvents = 0;
 let savedImages = 0;
 
 
@@ -70,16 +62,47 @@ const getImageData = (imageURI) => {
   }
 
 }
+const createClient = require('ipfs-http-client')
+const ipfsGateway = loadIPFSGateways();
+const ipfsClient = [];
+for (let gateway of ipfsGateway) {
+  ipfsClient.push(createClient(gateway))
+}
+
+const numberOfGateway = ipfsGateway.length
+const eventsList = []
+let toBlock = 12157136;
 
 
-const ipfsClient = require('ipfs-http-client')
-const ipfs = ipfsClient("https://ipfs.infura.io:5001")
+(async () => {
+  for(let gwIndex in ipfsClient ){
+    const fromBlock =  toBlock-30
+    const events = await contract.getPastEvents('Transfer', {
+      fromBlock: fromBlock,
+      toBlock: toBlock
+    });
+    eventsList.push(events);
+    toBlock = fromBlock;
+  }
+    
+  
+  const processingEventList = []
+  for(let index in eventsList){
+    processingEventList.push(processEvents(ipfsClient[index],eventsList[index]))
+  }
+  // Only one promise is run at once
+  const result = await Promise.all(processingEventList);
+  console.log(result);
+})();
+
+
+
+
+
+
 // Search the contract events for the hash in the event logs and show matching events.
-contract.getPastEvents('Transfer', {
-  fromBlock: 12154903,
-  toBlock: 'latest'
-}, async function (error, events) {
-  possibleNumberEvents = events.length;
+async function processEvents(ipfs,events) {
+  const possibleNumberEvents = events.length;
   console.log(possibleNumberEvents);
   let timeoutCounter = 1;
   for (let i = 0; i < possibleNumberEvents; i++) {
@@ -142,13 +165,23 @@ contract.getPastEvents('Transfer', {
   }
 
 
-})
+}
+
+
+
+
+
 function wait(timeout) {
   return new Promise((resolve) => {
     setTimeout(() => {
       resolve()
     }, timeout);
   });
+}
+
+function loadIPFSGateways() {
+  const gatewayFile = ".\\ipfs-gateways.json";
+  return JSON.parse(fs.readFileSync(gatewayFile));
 }
 
 
