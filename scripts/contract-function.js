@@ -22,8 +22,6 @@ var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 
 // Build a new variable based on the web3 API including the ABI and address of the contract
 var contract = new web3.eth.Contract(abi, addr);
-let savedImages = 0;
-
 
 
 function saveOwnerToFile(ownersData) {
@@ -70,29 +68,32 @@ for (let gateway of ipfsGateway) {
 }
 
 const numberOfGateway = ipfsGateway.length
-const eventsList = []
-let toBlock = 12157136;
 
+let toBlock = 12157600;
+let savedImages = 0;
 
 (async () => {
-  for(let gwIndex in ipfsClient ){
-    const fromBlock =  toBlock-30
-    const events = await contract.getPastEvents('Transfer', {
-      fromBlock: fromBlock,
-      toBlock: toBlock
-    });
-    eventsList.push(events);
-    toBlock = fromBlock;
-  }
+  while(toBlock>11937600){
+    const eventsList = []
+    for(let gwIndex in ipfsClient ){
+      const fromBlock =  toBlock-1000
+      const events = await contract.getPastEvents('Transfer', {
+        fromBlock: fromBlock,
+        toBlock: toBlock
+      });
+      eventsList.push(events);
+      toBlock = fromBlock;
+    }
+      
     
-  
-  const processingEventList = []
-  for(let index in eventsList){
-    processingEventList.push(processEvents(ipfsClient[index],eventsList[index]))
+    const processingEventList = []
+    for(let index in eventsList){
+      processingEventList.push(processEvents(ipfsClient[index],eventsList[index],ipfsGateway[index]))
+    }
+    // Only one promise is run at once
+    await Promise.all(processingEventList);
   }
-  // Only one promise is run at once
-  const result = await Promise.all(processingEventList);
-  console.log(result);
+  
 })();
 
 
@@ -101,14 +102,14 @@ let toBlock = 12157136;
 
 
 // Search the contract events for the hash in the event logs and show matching events.
-async function processEvents(ipfs,events) {
+async function processEvents(ipfs,events,gtway) {
   const possibleNumberEvents = events.length;
   console.log(possibleNumberEvents);
   let timeoutCounter = 1;
   for (let i = 0; i < possibleNumberEvents; i++) {
     const singleEvent = events[i];
     const tokenId = singleEvent.returnValues.tokenId;
-    console.log("============= Starting with token: ", tokenId, ", Block number: ", singleEvent.blockNumber, "=============")
+    console.log("+++ Gateway: ",gtway,"============= Starting with token: ", tokenId, ", Block number: ", singleEvent.blockNumber, "=============")
 
     const timeout = Math.pow(2, timeoutCounter);
     console.log('Waiting', timeout, 'ms');
