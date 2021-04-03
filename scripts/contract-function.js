@@ -69,7 +69,7 @@ for (let gateway of ipfsGateway) {
 
 const numberOfGateway = ipfsGateway.length
 
-let toBlock = 12157600;
+let toBlock = 12157600;// from 11937600 to 12157600
 let savedImages = 0;
 
 (async () => {
