@@ -25,7 +25,7 @@ var contract = new web3.eth.Contract(abi, addr);
 
 
 function saveOwnerToFile(ownersData) {
-  const jsonPath = ("../../imagematch/owners_data.json");
+  const jsonPath = ("./owners_data.json");
   const fileObj = fs.readFileSync(jsonPath, { flag: "a+" });
   let jsonObj = {};
   if (fileObj.byteLength != 0) {
@@ -69,11 +69,11 @@ for (let gateway of ipfsGateway) {
 
 const numberOfGateway = ipfsGateway.length
 
-let toBlock = 12157600;// from 11937600 to 12157600
+let toBlock = 11937600;// from 11937600 to 12157600
 let savedImages = 0;
 
 (async () => {
-  while(toBlock>11937600){
+  while(toBlock>11717600){
     const eventsList = []
     for(let gwIndex in ipfsClient ){
       const fromBlock =  toBlock-1000
