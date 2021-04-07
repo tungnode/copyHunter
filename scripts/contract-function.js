@@ -6,6 +6,9 @@ const https = require('https');
 const pLimit = require('p-limit');
 const all = require("it-all")
 const axios = require('axios');
+const util = require('util');
+const once = require('events')
+const Tar = require('it-tar')
 // Show web3 where it needs to look for the Ethereum node
 const web3 = new Web3(new Web3.providers.HttpProvider('https://mainnet.infura.io/v3/a671a77998514426b1ca3733157fb5ab'));
 
@@ -68,12 +71,14 @@ for (let gateway of ipfsGateway) {
 }
 
 const numberOfGateway = ipfsGateway.length
-
-let toBlock = 11937600;// from 11937600 to 12157600
+//rarible: from 11717600 to 12157600
+let toBlock = 11717600;// from 11710600 to 12157600
 let savedImages = 0;
-
+let totalImages = 0;
+let totalFailed = 0;
+let totalIgnored = 0;
 (async () => {
-  while(toBlock>11717600){
+  while(toBlock>11703600){
     const eventsList = []
     for(let gwIndex in ipfsClient ){
       const fromBlock =  toBlock-1000
@@ -105,66 +110,100 @@ let savedImages = 0;
 async function processEvents(ipfs,events,gtway) {
   const possibleNumberEvents = events.length;
   console.log(possibleNumberEvents);
-  let timeoutCounter = 1;
+  let timeout = 0;
+  totalImages = totalImages+ possibleNumberEvents;
   for (let i = 0; i < possibleNumberEvents; i++) {
     const singleEvent = events[i];
     const tokenId = singleEvent.returnValues.tokenId;
-    console.log("+++ Gateway: ",gtway,"============= Starting with token: ", tokenId, ", Block number: ", singleEvent.blockNumber, "=============")
+    console.log("=======================================================================================================")
+    console.log("=====Started",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+    console.log("=======================================================================================================")
 
-    const timeout = Math.pow(2, timeoutCounter);
-    console.log('Waiting', timeout, 'ms');
-    await wait(timeout);
-    timeoutCounter++;
-    if (timeoutCounter > 10) {
-      timeoutCounter = 1;
+    
+    if(timeout > 2500){
+      timeout = 500;
+    }else{
+      timeout = timeout + 500;
     }
+    // console.log('Waiting', timeout, 'ms');
+    await wait(timeout);
+    
     try {
       const tokenImageURI = await contract.methods.tokenURI(tokenId).call();
 
-      console.log(tokenImageURI);
+      // console.log(tokenImageURI);
 
       let tokenMetaData = await axios.request(tokenImageURI);
 
-      console.log(tokenMetaData.data.image);
+      // console.log(tokenMetaData.data.image);
 
       const imageData = getImageData(tokenMetaData.data.image)
       if (imageData) {
         const imageName = imageData[1];
         const imageURI = imageData[0];
+        const ignoreDuplicateCheck = true;
+        //|| !saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })
+        if (ignoreDuplicateCheck ) {
+          
+          console.log("=======================================================================================================")
+          console.log("=====Catting",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+          console.log("=======================================================================================================")
 
-        if (!saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })) {
-          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
-          console.log("Catting file: " + imageName)
           try {
-            const stream = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+            const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+            const finished = util.promisify(Stream.finished);
+            
             // console.log(stream);
-            for await (const chunk of stream) {
-              writableStream.write(chunk);
-            }
+            var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
 
+            for await (const chunk of res) {
+              
+              if(!writableStream.write(chunk)){
+                // writableStream.pause();
+                // writableStream.once('drain');
+                await once(writableStream, 'drain');
+
+              }
+
+            }
+            writableStream.end(); // (C)
+            // Wait until done. Throws if there are errors.
+            await finished(writableStream);
             savedImages++;
-            const logMsg = "Saved " + savedImages + " images out of " + possibleNumberEvents;
-            console.log(logMsg)
+            console.log("=======================================================================================================")
+            console.log("=====Saved",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+            console.log("=====Saved",savedImages,"out of total:",totalImages,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+            console.log("=======================================================================================================")
+
           } catch (e) {
             console.log(e);
             const downloadFileTimeout = 10 * 1000
             console.log('Waiting', downloadFileTimeout, 'ms');
+            fs.unlinkSync("./images/" + tokenId + "_" + imageName)
             await wait(downloadFileTimeout);
+            totalFailed++;
           }
         }
 
 
 
+      }else{
+        totalIgnored++;
       }
     } catch (err) {
       console.log(err)
       await wait(timeout);
+      totalFailed++
     }
-    console.log("=======================End token: ", tokenId, "=============================")
+    console.log("=======================================================================================================")
+    console.log("=====End",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+    console.log("=======================================================================================================")
+
 
 
   }
 
+  console.log("=====Saved",savedImages,"out of total:",totalImages,"with total failed: ",totalFailed,"and total ignored:",totalIgnored)
 
 }
 
@@ -186,4 +225,16 @@ function loadIPFSGateways() {
 }
 
 
+async function writeIterableToFile(iterable, filePath) {
+  const writable = fs.createWriteStream(filePath, {encoding: 'utf8'});
+  for await (const chunk of iterable) {
+    if (!writable.write(chunk)) { // (B)
+      // Handle backpressure
+      await once(writable, 'drain');
+    }
+  }
+  writable.end(); // (C)
+  // Wait until done. Throws if there are errors.
+  await finished(writable);
+}
 
