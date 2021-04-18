@@ -27,7 +27,7 @@ var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 var contract = new web3.eth.Contract(abi, addr);
 
 
-function saveOwnerToFile(ownersData) {
+function isTokenExist(ownersData) {
   const jsonPath = ("./owners_data.json");
   const fileObj = fs.readFileSync(jsonPath, { flag: "a+" });
   let jsonObj = {};
@@ -42,7 +42,8 @@ function saveOwnerToFile(ownersData) {
     owners = jsonObj[tokenId];
     tokenExist = true;
   }
-  owners.push(ownersData);
+  owners[ownersData.from] = ownersData.from;
+  owners[ownersData.to] = ownersData.to;
   jsonObj[tokenId] = owners;
   fs.writeFileSync(jsonPath, JSON.stringify(jsonObj));
   return tokenExist;
@@ -69,7 +70,6 @@ const ipfsClient = [];
 for (let gateway of ipfsGateway) {
   ipfsClient.push(createClient(gateway))
 }
-
 const numberOfGateway = ipfsGateway.length
 //rarible: from 11717600 to 12157600
 let toBlock = 11717600;// from 11710600 to 12157600
@@ -119,7 +119,8 @@ async function processEvents(ipfs,events,gtway) {
     console.log("=====Started",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
     console.log("=======================================================================================================")
 
-    
+    if(isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to }))
+      continue;
     if(timeout > 2500){
       timeout = 500;
     }else{
@@ -142,7 +143,7 @@ async function processEvents(ipfs,events,gtway) {
         const imageName = imageData[1];
         const imageURI = imageData[0];
         const ignoreDuplicateCheck = true;
-        //|| !saveOwnerToFile({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })
+        
         if (ignoreDuplicateCheck ) {
           
           console.log("=======================================================================================================")
@@ -177,6 +178,7 @@ async function processEvents(ipfs,events,gtway) {
 
           } catch (e) {
             console.log(e);
+            saveRetryInfo({'tokenId':tokenId,'tokenMetaURI':tokenImageURI,'imageURL':imageURI,'imageName':imageName})
             const downloadFileTimeout = 10 * 1000
             console.log('Waiting', downloadFileTimeout, 'ms');
             fs.unlinkSync("./images/" + tokenId + "_" + imageName)
@@ -192,6 +194,7 @@ async function processEvents(ipfs,events,gtway) {
       }
     } catch (err) {
       console.log(err)
+      saveRetryInfo({'tokenId':tokenId});
       await wait(timeout);
       totalFailed++
     }
@@ -209,7 +212,21 @@ async function processEvents(ipfs,events,gtway) {
 
 
 
+function saveRetryInfo(tokenInfo) {
+  const jsonPath = ("./retryInfo.json");
+  const fileObj = fs.readFileSync(jsonPath, { flag: "a+" });
+  let jsonObj = {};
+  if (fileObj.byteLength != 0) {
+    jsonObj = JSON.parse(fileObj);
+  }
 
+  const tokenId = tokenInfo.tokenId;
+  if (!jsonObj.hasOwnProperty(tokenId)) {
+    jsonObj[tokenId] = tokenInfo;
+    fs.writeFileSync(jsonPath, JSON.stringify(jsonObj));
+  }
+  
+}
 
 function wait(timeout) {
   return new Promise((resolve) => {
