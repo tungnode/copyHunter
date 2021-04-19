@@ -1,5 +1,4 @@
 
-// Require Web3 Module
 var Web3 = require('web3');
 const Stream = require('stream')
 const https = require('https');
@@ -9,17 +8,17 @@ const axios = require('axios');
 const util = require('util');
 const once = require('events')
 const Tar = require('it-tar')
+var fs = require('fs');
+const createClient = require('ipfs-http-client')
+
 // Show web3 where it needs to look for the Ethereum node
 const web3 = new Web3(new Web3.providers.HttpProvider('https://mainnet.infura.io/v3/a671a77998514426b1ca3733157fb5ab'));
 
-// Write to the console the script will run shortly
-console.log('Contract-ing Ebola.....');
-
 // Define the ABI of the contract, used to return the desired values
-var fs = require('fs');
 var jsonFile = "..\\contracts\\Rarible.json";
 var parsed = JSON.parse(fs.readFileSync(jsonFile));
 var abi = parsed.abi;
+
 // The Ethereum address of the smart contract
 var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 
@@ -27,6 +26,51 @@ var addr = "0x60f80121c31a0d46b5279700f9df786054aa5ee5";
 var contract = new web3.eth.Contract(abi, addr);
 
 
+const ipfsGateways = loadIPFSGateways();
+const ipfsClients = [];
+for (let gateway of ipfsGateways) {
+  ipfsClients.push(createClient(gateway))
+}
+
+//rarible: from 11717600 to 12157600
+let toBlock = 11717600;// from 11710600 to 12157600
+let savedImages = 0;
+let totalImages = 0;
+let totalFailed = 0;
+let totalIgnored = 0;
+(async () => {
+  while(toBlock>11703600){
+    const eventsList = []
+    for(let gwIndex in ipfsClients ){
+      const fromBlock =  toBlock-1000
+      //get all transfer events from block xxx to block xxx
+      const events = await contract.getPastEvents('Transfer', {
+        fromBlock: fromBlock,
+        toBlock: toBlock
+      });
+      eventsList.push(events);
+      toBlock = fromBlock;
+    }
+      
+    
+    const processingEventList = []
+    for(let index in eventsList){
+      processingEventList.push(processEvents(ipfsClients[index],eventsList[index],ipfsGateways[index]))
+    }
+    await Promise.all(processingEventList);
+  }
+  
+})();
+
+
+
+
+/**
+ * check if tokenId is already in owners_data.json file
+ * return true. else false. It also updats new owners of that token
+ * @param {object} ownersData 
+ * @returns 
+ */
 function isTokenExist(ownersData) {
   const jsonPath = ("./owners_data.json");
   const fileObj = fs.readFileSync(jsonPath, { flag: "a+" });
@@ -49,12 +93,16 @@ function isTokenExist(ownersData) {
   return tokenExist;
 }
 
+/**
+ * extract image name and ipfs uri from https uri. For example http://ipfs/QmbPLPwV4tqNriFcvPQ2Dkrf2GVzr8P3GANUn9EN75BBvi
+ * @param {http url which contains ipfs uri} imageURI 
+ * @returns 
+ */
 const getImageData = (imageURI) => {
-
   var pos = imageURI.indexOf("ipfs");
   if (pos >= 0) {
     imageURI = imageURI.slice(imageURI.lastIndexOf("ipfs") + 5);
-    // console.log(imageURI);
+    console.log(imageURI);
     const imageName = imageURI.slice(imageURI.indexOf("/") + 1);
     if (imageName.search(".gif") > 0) {
       return;
@@ -62,51 +110,14 @@ const getImageData = (imageURI) => {
       return [imageURI, imageName];
     }
   }
-
 }
-const createClient = require('ipfs-http-client')
-const ipfsGateway = loadIPFSGateways();
-const ipfsClient = [];
-for (let gateway of ipfsGateway) {
-  ipfsClient.push(createClient(gateway))
-}
-const numberOfGateway = ipfsGateway.length
-//rarible: from 11717600 to 12157600
-let toBlock = 11717600;// from 11710600 to 12157600
-let savedImages = 0;
-let totalImages = 0;
-let totalFailed = 0;
-let totalIgnored = 0;
-(async () => {
-  while(toBlock>11703600){
-    const eventsList = []
-    for(let gwIndex in ipfsClient ){
-      const fromBlock =  toBlock-1000
-      const events = await contract.getPastEvents('Transfer', {
-        fromBlock: fromBlock,
-        toBlock: toBlock
-      });
-      eventsList.push(events);
-      toBlock = fromBlock;
-    }
-      
-    
-    const processingEventList = []
-    for(let index in eventsList){
-      processingEventList.push(processEvents(ipfsClient[index],eventsList[index],ipfsGateway[index]))
-    }
-    // Only one promise is run at once
-    await Promise.all(processingEventList);
-  }
-  
-})();
 
-
-
-
-
-
-// Search the contract events for the hash in the event logs and show matching events.
+/**
+ * process transfer events
+ * @param {*} ipfs 
+ * @param {*} events 
+ * @param {*} gtway 
+ */
 async function processEvents(ipfs,events,gtway) {
   const possibleNumberEvents = events.length;
   console.log(possibleNumberEvents);
@@ -129,66 +140,54 @@ async function processEvents(ipfs,events,gtway) {
     }else{
       timeout = timeout + 500;
     }
-    // console.log('Waiting', timeout, 'ms');
+    //wait so won't cause server timeout
     await wait(timeout);
     
     try {
-      const tokenImageURI = await contract.methods.tokenURI(tokenId).call();
+      //
+      const tokenMetaDataURI = await contract.methods.tokenURI(tokenId).call();
 
-      // console.log(tokenImageURI);
-
-      let tokenMetaData = await axios.request(tokenImageURI);
-
-      // console.log(tokenMetaData.data.image);
+      let tokenMetaData = await axios.request(tokenMetaDataURI);
 
       const imageData = getImageData(tokenMetaData.data.image)
       if (imageData) {
         const imageName = imageData[1];
         const imageURI = imageData[0];
-        const ignoreDuplicateCheck = true;
-        
-        if (ignoreDuplicateCheck ) {
+               
+        console.log("=======================================================================================================")
+        console.log("=====Catting",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+        console.log("=======================================================================================================")
+
+        try {
+          //catting image from ipfs network
+          const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+          const finished = util.promisify(Stream.finished);
           
-          console.log("=======================================================================================================")
-          console.log("=====Catting",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
-          console.log("=======================================================================================================")
+          // console.log(stream);
+          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
 
-          try {
-            const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
-            const finished = util.promisify(Stream.finished);
-            
-            // console.log(stream);
-            var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
-
-            for await (const chunk of res) {
-              
-              if(!writableStream.write(chunk)){
-                // writableStream.pause();
-                // writableStream.once('drain');
-                await once(writableStream, 'drain');
-
-              }
-
-            }
-            writableStream.end(); // (C)
-            // Wait until done. Throws if there are errors.
-            await finished(writableStream);
-            savedImages++;
-            console.log("=======================================================================================================")
-            console.log("=====Saved",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
-            console.log("=====Saved",savedImages,"out of total:",totalImages,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
-            console.log("=======================================================================================================")
-
-          } catch (e) {
-            console.log(e);
-            saveRetryInfo({'tokenId':tokenId,'tokenMetaURI':tokenImageURI,'imageURL':imageURI,'imageName':imageName})
-            const downloadFileTimeout = 10 * 1000
-            console.log('Waiting', downloadFileTimeout, 'ms');
-            fs.unlinkSync("./images/" + tokenId + "_" + imageName)
-            await wait(downloadFileTimeout);
-            totalFailed++;
+          for await (const chunk of res) {
+            writableStream.write(chunk)
           }
+          writableStream.end(); // (C)
+          // Wait until done. Throws if there are errors.
+          await finished(writableStream);
+          savedImages++;
+          console.log("=======================================================================================================")
+          console.log("=====Saved",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+          console.log("=====Saved",savedImages,"out of total:",totalImages,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+          console.log("=======================================================================================================")
+
+        } catch (e) {
+          console.log(e);
+          saveRetryInfo({'tokenId':tokenId,'tokenMetaURI':tokenMetaDataURI,'imageURL':imageURI,'imageName':imageName})
+          const downloadFileTimeout = 10 * 1000
+          fs.unlinkSync("./images/" + tokenId + "_" + imageName)
+          console.log('Waiting', downloadFileTimeout, 'ms');
+          totalFailed++;
+          await wait(downloadFileTimeout);
         }
+        
 
 
 
@@ -244,17 +243,4 @@ function loadIPFSGateways() {
   return JSON.parse(fs.readFileSync(gatewayFile));
 }
 
-
-async function writeIterableToFile(iterable, filePath) {
-  const writable = fs.createWriteStream(filePath, {encoding: 'utf8'});
-  for await (const chunk of iterable) {
-    if (!writable.write(chunk)) { // (B)
-      // Handle backpressure
-      await once(writable, 'drain');
-    }
-  }
-  writable.end(); // (C)
-  // Wait until done. Throws if there are errors.
-  await finished(writable);
-}
 
