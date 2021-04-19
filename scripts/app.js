@@ -146,8 +146,12 @@ async function processEvents(ipfs,events,gtway) {
     try {
       //
       const tokenMetaDataURI = await contract.methods.tokenURI(tokenId).call();
-
-      let tokenMetaData = await axios.request(tokenMetaDataURI);
+      let tokenMetaData = ''
+      if(tokenMetaDataURI.includes('http'))
+        tokenMetaData = await axios.request(tokenMetaDataURI);
+      else{
+        tokenMetaData = await axios.request('http://ipfs.io/'+tokenMetaDataURI.slice(tokenMetaDataURI.lastIndexOf("ipfs")));
+      }  
 
       const imageData = getImageData(tokenMetaData.data.image)
       if (imageData) {
