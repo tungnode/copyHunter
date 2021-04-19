@@ -119,8 +119,11 @@ async function processEvents(ipfs,events,gtway) {
     console.log("=====Started",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
     console.log("=======================================================================================================")
 
-    if(isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to }))
+    if(isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })){
+      savedImages++;
       continue;
+    }
+      
     if(timeout > 2500){
       timeout = 500;
     }else{
