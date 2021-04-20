@@ -31,18 +31,18 @@ const ipfsClients = [];
 for (let gateway of ipfsGateways) {
   ipfsClients.push(createClient(gateway))
 }
-
-//rarible: from 11717600 to 12157600
-let toBlock = 11717600;// from 11710600 to 12157600
+// ipfsClients.push(createClient())
+//rarible: from 11703600 to 12157600
+let toBlock = 12274312;// from 11703600 to 12157600
 let savedImages = 0;
 let totalImages = 0;
 let totalFailed = 0;
 let totalIgnored = 0;
 (async () => {
-  while(toBlock>11703600){
+  while (toBlock > 12157600) {
     const eventsList = []
-    for(let gwIndex in ipfsClients ){
-      const fromBlock =  toBlock-1000
+    for (let gwIndex in ipfsClients) {
+      const fromBlock = toBlock - 1000
       //get all transfer events from block xxx to block xxx
       const events = await contract.getPastEvents('Transfer', {
         fromBlock: fromBlock,
@@ -51,15 +51,15 @@ let totalIgnored = 0;
       eventsList.push(events);
       toBlock = fromBlock;
     }
-      
-    
+
+
     const processingEventList = []
-    for(let index in eventsList){
-      processingEventList.push(processEvents(ipfsClients[index],eventsList[index],ipfsGateways[index]))
+    for (let index in eventsList) {
+      processingEventList.push(processEvents(ipfsClients[index], eventsList[index], ipfsGateways[index]))
     }
     await Promise.all(processingEventList);
   }
-  
+  console.log("^^^^^^^^^^^^^^^^^  all done  ^^^^^^^^^^^^^^^^^^^^^^^")
 })();
 
 
@@ -118,101 +118,106 @@ const getImageData = (imageURI) => {
  * @param {*} events 
  * @param {*} gtway 
  */
-async function processEvents(ipfs,events,gtway) {
+async function processEvents(ipfs, events, gtway) {
   const possibleNumberEvents = events.length;
   console.log(possibleNumberEvents);
   let timeout = 0;
-  totalImages = totalImages+ possibleNumberEvents;
+  totalImages = totalImages + possibleNumberEvents;
   for (let i = 0; i < possibleNumberEvents; i++) {
     const singleEvent = events[i];
     const tokenId = singleEvent.returnValues.tokenId;
     console.log("=======================================================================================================")
-    console.log("=====Started",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+    console.log("=====Started", i, "out of:", possibleNumberEvents, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
     console.log("=======================================================================================================")
 
-    if(isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })){
+    if (isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })) {
       savedImages++;
       continue;
     }
-      
-    if(timeout > 2500){
+
+    if (timeout > 2500) {
       timeout = 500;
-    }else{
+    } else {
       timeout = timeout + 500;
     }
     //wait so won't cause server timeout
     await wait(timeout);
-    
+
     try {
       //
       const tokenMetaDataURI = await contract.methods.tokenURI(tokenId).call();
       let tokenMetaData = ''
-      if(tokenMetaDataURI.includes('http'))
+      if (tokenMetaDataURI.includes('http'))
         tokenMetaData = await axios.request(tokenMetaDataURI);
-      else{
-        tokenMetaData = await axios.request('http://ipfs.io/'+tokenMetaDataURI.slice(tokenMetaDataURI.lastIndexOf("ipfs")));
-      }  
+      else {
+        tokenMetaData = await axios.request('http://ipfs.io/' + tokenMetaDataURI.slice(tokenMetaDataURI.lastIndexOf("ipfs")));
+      }
 
       const imageData = getImageData(tokenMetaData.data.image)
       if (imageData) {
         const imageName = imageData[1];
         const imageURI = imageData[0];
-               
+
         console.log("=======================================================================================================")
-        console.log("=====Catting",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+        console.log("=====Catting", i, "out of:", possibleNumberEvents, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
         console.log("=======================================================================================================")
 
         try {
           //catting image from ipfs network
-          const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+          console.log(imageURI)
           const finished = util.promisify(Stream.finished);
+          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName, { flags: 'wx' });
+          writableStream.on('error', (err) => { console.log(tokenId + " file already exist");writableStream.end(); })
           
-          // console.log(stream);
-          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName);
+          writableStream.on('open', async () => {
+            const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+            for await (const chunk of res) {
+              writableStream.write(chunk)
+            }
+            writableStream.end(); // (C)
+          })
 
-          for await (const chunk of res) {
-            writableStream.write(chunk)
-          }
-          writableStream.end(); // (C)
           // Wait until done. Throws if there are errors.
           await finished(writableStream);
           savedImages++;
           console.log("=======================================================================================================")
-          console.log("=====Saved",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
-          console.log("=====Saved",savedImages,"out of total:",totalImages,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+          console.log("=====Saved", i, "out of:", possibleNumberEvents, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
+          console.log("=====Saved", savedImages, "out of total:", totalImages, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
           console.log("=======================================================================================================")
 
         } catch (e) {
           console.log(e);
-          saveRetryInfo({'tokenId':tokenId,'tokenMetaURI':tokenMetaDataURI,'imageURL':imageURI,'imageName':imageName})
-          const downloadFileTimeout = 10 * 1000
-          fs.unlinkSync("./images/" + tokenId + "_" + imageName)
-          console.log('Waiting', downloadFileTimeout, 'ms');
-          totalFailed++;
-          await wait(downloadFileTimeout);
+          if (e.code !== 'EEXIST') {
+            saveRetryInfo({ 'tokenId': tokenId, 'tokenMetaURI': tokenMetaDataURI, 'imageURL': imageURI, 'imageName': imageName })
+            const downloadFileTimeout = 10 * 1000
+            console.log('Waiting', downloadFileTimeout, 'ms');
+            totalFailed++;
+            await wait(downloadFileTimeout);
+          }
+
         }
-        
 
 
 
-      }else{
+
+      } else {
         totalIgnored++;
       }
     } catch (err) {
       console.log(err)
-      saveRetryInfo({'tokenId':tokenId});
+      saveRetryInfo({ 'tokenId': tokenId });
       await wait(timeout);
       totalFailed++
     }
     console.log("=======================================================================================================")
-    console.log("=====End",i,"out of:",possibleNumberEvents,"on Gateway:",gtway,"=== token:",tokenId,"Block number:", singleEvent.blockNumber)
+    console.log("=====End", i, "out of:", possibleNumberEvents, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
     console.log("=======================================================================================================")
 
 
 
   }
 
-  console.log("=====Saved",savedImages,"out of total:",totalImages,"with total failed: ",totalFailed,"and total ignored:",totalIgnored)
+  console.log("=====Saved", savedImages, "out of total:", totalImages, "with total failed: ", totalFailed, "and total ignored:", totalIgnored)
 
 }
 
@@ -231,7 +236,7 @@ function saveRetryInfo(tokenInfo) {
     jsonObj[tokenId] = tokenInfo;
     fs.writeFileSync(jsonPath, JSON.stringify(jsonObj));
   }
-  
+
 }
 
 function wait(timeout) {
