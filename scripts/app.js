@@ -32,8 +32,8 @@ for (let gateway of ipfsGateways) {
   ipfsClients.push(createClient(gateway))
 }
 // ipfsClients.push(createClient())
-//rarible: from 11703600 to 12157600
-let toBlock = 12274312;// from 11703600 to 12157600
+//rarible: from 11703600 to 12157600 12274312
+let toBlock = 12265544;// from 11703600 to 12157600
 let savedImages = 0;
 let totalImages = 0;
 let totalFailed = 0;
@@ -167,14 +167,24 @@ async function processEvents(ipfs, events, gtway) {
           console.log(imageURI)
           const finished = util.promisify(Stream.finished);
           var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName, { flags: 'wx' });
-          writableStream.on('error', (err) => { console.log(tokenId + " file already exist");writableStream.end(); })
-          
+          writableStream.on('error', (err) => { console.log(tokenId + " file already exist"); writableStream.end(); })
+
           writableStream.on('open', async () => {
-            const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
-            for await (const chunk of res) {
-              writableStream.write(chunk)
+            try {
+              const res = ipfs.cat(imageURI, { "headers": { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" } });
+              for await (const chunk of res) {
+                writableStream.write(chunk)
+              }
+              writableStream.end(); // (C)
+            } catch (e) {
+              console.log(e)
+              saveRetryInfo({ 'tokenId': tokenId, 'tokenMetaURI': tokenMetaDataURI, 'imageURL': imageURI, 'imageName': imageName })
+              const downloadFileTimeout = 10 * 1000
+              console.log('Waiting', downloadFileTimeout, 'ms');
+              totalFailed++;
+              await wait(downloadFileTimeout);
             }
-            writableStream.end(); // (C)
+
           })
 
           // Wait until done. Throws if there are errors.
