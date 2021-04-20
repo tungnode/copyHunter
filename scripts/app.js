@@ -32,14 +32,14 @@ for (let gateway of ipfsGateways) {
   ipfsClients.push(createClient(gateway))
 }
 // ipfsClients.push(createClient())
-//rarible: from 11703600 to 12157600 12274312
-let toBlock = 12265544;// from 11703600 to 12157600
+//rarible: from 11603600 to 12157600 12274312
+let toBlock = 11603600;// from 11703600 to 12157600
 let savedImages = 0;
 let totalImages = 0;
 let totalFailed = 0;
 let totalIgnored = 0;
 (async () => {
-  while (toBlock > 12157600) {
+  while (toBlock > 11503600) {
     const eventsList = []
     for (let gwIndex in ipfsClients) {
       const fromBlock = toBlock - 1000
