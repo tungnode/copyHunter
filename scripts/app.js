@@ -32,14 +32,14 @@ for (let gateway of ipfsGateways) {
   ipfsClients.push(createClient(gateway))
 }
 // ipfsClients.push(createClient())
-//rarible: from 11603600 to 12157600 12274312
-let toBlock = 11603600;// from 11703600 to 12157600
+//rarible: from 11503600 to 12157600 12274312
+let toBlock = 11343582;// from 11703600 to 12157600
 let savedImages = 0;
 let totalImages = 0;
 let totalFailed = 0;
 let totalIgnored = 0;
 (async () => {
-  while (toBlock > 11503600) {
+  while (toBlock > 11103600) {
     const eventsList = []
     for (let gwIndex in ipfsClients) {
       const fromBlock = toBlock - 1000
@@ -131,6 +131,7 @@ async function processEvents(ipfs, events, gtway) {
     console.log("=======================================================================================================")
 
     if (isTokenExist({ "tokenId": tokenId, "from": singleEvent.returnValues.from, "to": singleEvent.returnValues.to })) {
+      console.log("============",tokenId,"already exist")
       savedImages++;
       continue;
     }
@@ -217,9 +218,14 @@ async function processEvents(ipfs, events, gtway) {
       }
     } catch (err) {
       console.log(err)
-      saveRetryInfo({ 'tokenId': tokenId });
-      await wait(timeout);
-      totalFailed++
+      if(err.message && err.message.includes('URI query for nonexistent token')){
+        console.log("==============",tokenId,"nonexistent")
+      }else{
+        saveRetryInfo({ 'tokenId': tokenId });
+        await wait(timeout);
+        totalFailed++
+      }
+      
     }
     console.log("=======================================================================================================")
     console.log("=====End", i, "out of:", possibleNumberEvents, "on Gateway:", gtway, "=== token:", tokenId, "Block number:", singleEvent.blockNumber)
