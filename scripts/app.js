@@ -175,7 +175,7 @@ async function processEvents(ipfs, events, gtway) {
               for await (const chunk of res) {
                 writableStream.write(chunk)
               }
-              writableStream.end(); // (C)
+              
             } catch (e) {
               console.log(e)
               saveRetryInfo({ 'tokenId': tokenId, 'tokenMetaURI': tokenMetaDataURI, 'imageURL': imageURI, 'imageName': imageName })
@@ -183,6 +183,8 @@ async function processEvents(ipfs, events, gtway) {
               console.log('Waiting', downloadFileTimeout, 'ms');
               totalFailed++;
               await wait(downloadFileTimeout);
+            }finally{
+              writableStream.end(); // (C)
             }
 
           })
