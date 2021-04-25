@@ -33,13 +33,13 @@ for (let gateway of ipfsGateways) {
 }
 // ipfsClients.push(createClient())
 //rarible: from 11083600 to 12157600 12274312
-let toBlock = 11083600;// from 11703600 to 12157600
+let toBlock = 12274312;// from 11703600 to 12157600
 let savedImages = 0;
 let totalImages = 0;
 let totalFailed = 0;
 let totalIgnored = 0;
 (async () => {
-  while (toBlock > 10583600) {
+  while (toBlock > 10000000) {
     const eventsList = []
     for (let gwIndex in ipfsClients) {
       const fromBlock = toBlock - 1000
@@ -79,7 +79,7 @@ function isTokenExist(ownersData) {
     jsonObj = JSON.parse(fileObj);
   }
 
-  let owners = []
+  let owners = {}
   let tokenExist = false;
   const tokenId = ownersData.tokenId;
   if (jsonObj.hasOwnProperty(tokenId)) {
@@ -167,7 +167,9 @@ async function processEvents(ipfs, events, gtway) {
           //catting image from ipfs network
           console.log(imageURI)
           const finished = util.promisify(Stream.finished);
-          var writableStream = fs.createWriteStream("./images/" + tokenId + "_" + imageName, { flags: 'wx' });
+          const imageNameType = imageName.split(".")
+				  const imageType = imageNameType.length===2?"."+imageNameType[1]:"";
+				  var writableStream = fs.createWriteStream("./images/" + addr+"_"+tokenId + imageType, { flags: 'wx' });
           writableStream.on('error', (err) => { console.log(tokenId + " file already exist"); writableStream.end(); })
 
           writableStream.on('open', async () => {
